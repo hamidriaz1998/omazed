@@ -69,25 +69,20 @@ If your omarchy version doesn't support hooks yet, omazed automatically falls ba
 ## Available Themes
 
 The following default Omarchy themes are included:
-- **Catppuccin** - Warm, pastel theme
-- **Catppuccin Latte** - Light variant of Catppuccin
-- **Everforest** - Green-based comfortable theme
-- **Gruvbox** - Retro groove colors
-- **Kanagawa** - Japanese-inspired theme
-- **Matte Black** - Sleek dark theme
-- **Nord** - Arctic-inspired blue theme
-- **Osaka Jade** - Elegant green theme
-- **Ristretto** - Coffee-inspired dark theme
-- **Rose Pine** - Soho vibes for cosy coding (light)
-- **Tokyo Night** - Vibrant night theme
-- **Flexoki Light** - Warm, organic light theme
-
-## Adding Custom Themes
-
-1. Add your `.json` theme file to the `~/.config/zed/themes` directory
-   > **Tip**: You can find additional themes at [zed-themes.com](https://zed-themes.com/)
-2. Ensure that the theme name matches the omarchy theme name (ex: Tokyo Night) and the file name is the theme name in lowercase separated by '-' (ex: tokyo-night).
-3. The sync script will automatically use it when that theme is active
+- Catppuccin 
+- Catppuccin Latte
+- Everforest 
+- Gruvbox
+- Kanagawa 
+- Matte Black 
+- Nord 
+- Osaka Jade 
+- Ristretto 
+- Rose Pine
+- Tokyo Night
+- Flexoki Light 
+- Ethereal
+- Hackerman
 
 ## Automatic Theme Generation
 
@@ -98,6 +93,13 @@ For themes without pre-made Zed themes, Omazed automatically:
 - Saves the generated theme for future use
 
 This ensures that **all** Omarchy themes work with Zed.
+
+## Adding Custom Themes
+
+1. Add your `.json` theme file to the `~/.config/zed/themes` directory
+   > **Tip**: You can find additional themes at [zed-themes.com](https://zed-themes.com/)
+2. Ensure that the theme name matches the omarchy theme name (ex: Tokyo Night) and the file name is the theme name in lowercase separated by '-' (ex: tokyo-night).
+3. The sync script will automatically use it when that theme is active
 
 ## Usage
 

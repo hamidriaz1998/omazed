@@ -1,0 +1,45 @@
+post_install() {
+    echo ""
+    echo "==> Omazed installed successfully!"
+    echo ""
+    echo "🚀 To complete setup, run:"
+    echo "   omazed setup"
+    echo ""
+    echo "   This will:"
+    echo "   • Copy themes to ~/.config/zed/themes/"
+    echo "   • Set up omarchy hook integration (or systemd fallback)"
+    echo "   • Test the installation"
+    echo ""
+    echo "Then change your Omarchy theme and watch Zed follow along!"
+    echo ""
+}
+
+post_upgrade() {
+    echo ""
+    echo "==> Omazed updated to $(pacman -Q omazed | cut -d' ' -f2)"
+    echo ""
+    echo "   Complete the update!"
+    echo ""
+    echo "   To complete this update, run:"
+    echo ""
+    echo "   omazed setup"
+    echo ""
+    echo "   This will:"
+    echo "   • Replace old themes with new ones."
+    echo "   • Migrate to omarchy hooks automatically"
+    echo ""
+}
+
+post_remove() {
+    echo ""
+    echo "==> Omazed removed."
+    echo ""
+    echo "Preserved files:"
+    echo "   • Theme files in ~/.config/zed/themes/ (preserved)"
+    echo ""
+    echo "To remove themes:"
+    echo "   rm ~/.config/zed/themes/*.json"
+    echo ""
+    echo "Thank you for using Omazed!"
+    echo ""
+}
