@@ -88,6 +88,7 @@ check_installation() {
         warn "No installation components found"
         return 1
     else
+        local IFS=', '
         info "Found components: ${found_components[*]}"
         return 0
     fi

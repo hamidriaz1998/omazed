@@ -2,7 +2,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OMARCHY_THEME_PATH="$HOME/.config/omarchy/current/theme"
 ZED_CONFIG_DIR="$HOME/.config/zed"
 ZED_THEMES_DIR="$ZED_CONFIG_DIR/themes"
@@ -159,7 +158,6 @@ setup_user() {
     if [[ -d "/usr/share/omazed/themes" ]]; then
         info "Installing themes..."
         local themes_source="/usr/share/omazed/themes"
-        info "Using system themes: $themes_source"
 
         local installed_count=0
 
@@ -188,98 +186,25 @@ setup_user() {
         fi
     fi
 
-    local using_hooks="false"
     if check_omarchy_hook_support; then
-        info "Omarchy hook system available - using hook integration"
-        using_hooks="true"
         if migrate_from_systemd; then
             success "✓ Successfully migrated from systemd to hooks"
         fi
         setup_omarchy_hook
     else
-        warn "Omarchy hook system not available - using systemd watcher"
-        info "Consider updating omarchy for hook support in the future"
-
-        if systemctl --user enable omazed.service 2>/dev/null; then
-            success "✓ systemd Service enabled"
-        else
-            warn "! Could not enable systemd service (may not be installed to system location)"
-        fi
-
-        if systemctl --user start omazed.service 2>/dev/null; then
-            success "✓ Service started"
-        else
-            warn "! Could not start service - you may need to start it manually"
-        fi
+        error "Omarchy hook system not available. Please update omarchy or install a older version of omazed < 1.2"
+        return 1
     fi
 
-    handle_theme_change
+    sync_theme
 
     echo ""
     success "Setup complete!"
     echo ""
-    info "Testing installation..."
-    test_setup
-
-    echo ""
     success "🎉 Omazed is ready!"
-    if [[ "$using_hooks" == "true" ]]; then
-        info "Using omarchy hooks"
-    else
-        info "Using systemd watcher - service running in background"
-    fi
     info "Change your Omarchy theme and watch Zed follow along automatically!"
     return 0
 }
-
-reload_service() {
-    info "Reloading omazed service..."
-
-    if systemctl --user is-active --quiet omazed.service; then
-        if systemctl --user restart omazed.service; then
-            success "✓ Service restarted successfully"
-        else
-            error "Failed to restart service"
-            return 1
-        fi
-    else
-        info "Service not running, starting it..."
-        if systemctl --user start omazed.service; then
-            success "✓ Service started successfully"
-        else
-            error "Failed to start service"
-            return 1
-        fi
-    fi
-
-    sleep 1
-    if systemctl --user is-active --quiet omazed.service; then
-        success "✓ Service is running"
-        info "Current theme sync active"
-    else
-        warn "Service may not be running properly"
-        info "Check status with: omazed status"
-    fi
-
-    return 0
-}
-
-check_deps() {
-    local missing=()
-
-    if ! command -v inotifywait >/dev/null 2>&1; then
-        missing+=("inotifywait")
-    fi
-
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        error "Missing dependencies: ${missing[*]}"
-        info "Install with: sudo pacman -S inotify-tools"
-        exit 1
-    fi
-
-    return 0
-}
-
 
 get_current_theme() {
     local theme=""
@@ -410,12 +335,7 @@ update_zed_theme() {
     fi
 }
 
-handle_theme_change() {
-    if ! pgrep -f "omarchy" >/dev/null 2>&1 && [[ ! -e "$OMARCHY_THEME_PATH" ]]; then
-        info "Omarchy not ready yet, skipping theme sync"
-        return 0
-    fi
-
+sync_theme() {
     local current_theme
     current_theme=$(get_current_theme)
 
@@ -454,164 +374,6 @@ handle_theme_change() {
     return 0
 }
 
-start_watching() {
-    info "Starting omazed theme watcher..."
-    info "Watching: $OMARCHY_THEME_PATH"
-    info "Zed themes: $ZED_THEMES_DIR"
-    info "Zed settings: $ZED_SETTINGS_PATH"
-
-    info "Waiting for Omarchy theme system to be ready..."
-    local wait_count=0
-    while [[ $wait_count -lt 30 ]]; do
-        if [[ -e "$OMARCHY_THEME_PATH" ]]; then
-            sleep 2
-            if [[ -e "$OMARCHY_THEME_PATH" ]]; then
-                break
-            fi
-        fi
-        sleep 1
-        ((wait_count++))
-    done
-
-    if [[ $wait_count -ge 30 ]]; then
-        warn "Timeout waiting for Omarchy theme system - continuing anyway"
-    else
-        info "Omarchy theme system is ready"
-    fi
-
-    handle_theme_change
-
-    local watch_dir
-    watch_dir=$(dirname "$OMARCHY_THEME_PATH")
-    local watch_file
-    watch_file=$(basename "$OMARCHY_THEME_PATH")
-
-    info "Monitoring $watch_dir for changes to $watch_file"
-
-    while true; do
-        if inotifywait -e modify,move,delete,create -qq "$watch_dir" 2>/dev/null; then
-            sleep 0.5  # Brief delay for file operations to complete
-            handle_theme_change
-        fi
-    done
-}
-
-start_watcher() {
-    info "Starting omazed..."
-
-    if [[ -f "$SERVICE_DIR/omazed.service" ]]; then
-        if systemctl --user start omazed.service 2>/dev/null; then
-            success "Systemd service started ✓"
-
-            sleep 2
-            if systemctl --user is-active --quiet omazed.service; then
-                success "Service is running successfully"
-                return 0
-            else
-                error "Service started but stopped - check logs with:"
-                error "  journalctl --user -u omazed.service -f"
-                return 1
-            fi
-        else
-            error "Failed to start systemd service"
-            return 1
-        fi
-    else
-        error "No systemd service found at $SERVICE_DIR/omazed.service"
-        info "Please install the systemd service first or use 'omazed watch' to run in foreground"
-        return 1
-    fi
-}
-
-check_status() {
-    info "Checking omazed status..."
-
-    if systemctl --user is-active --quiet omazed.service 2>/dev/null; then
-        success "Systemd service: running ✓"
-
-        info "Service status:"
-        systemctl --user status omazed.service --no-pager -l || true
-
-        if [[ -e "$OMARCHY_THEME_PATH" ]]; then
-            local current_theme
-            current_theme=$(get_current_theme)
-            if [[ -n "$current_theme" ]]; then
-                info "Current Omarchy theme: $current_theme"
-            else
-                warn "Could not detect current theme"
-            fi
-        else
-            warn "Omarchy theme file not found: $OMARCHY_THEME_PATH"
-        fi
-
-        success "Overall status: omazed is running ✓"
-        return 0
-    elif systemctl --user list-unit-files --quiet | grep -q "omazed.service"; then
-        warn "Systemd service: stopped"
-        info "Start with: omazed start"
-        return 1
-    else
-        warn "Systemd service: not installed"
-        info "Install the systemd service or use 'omazed watch' to run in foreground"
-        return 1
-    fi
-}
-test_setup() {
-
-    if [[ ! -e "$OMARCHY_THEME_PATH" ]]; then
-        error "Omarchy theme file not found: $OMARCHY_THEME_PATH"
-        return 1
-    fi
-
-    local current_theme
-    current_theme=$(get_current_theme)
-    if [[ -z "$current_theme" ]]; then
-        error "Could not detect current theme"
-        return 1
-    fi
-
-    if [[ ! -d "$ZED_CONFIG_DIR" ]]; then
-        warn "Zed config directory not found (will be created)"
-    fi
-
-    if [[ ! -f "$CONVERTER_SCRIPT" ]]; then
-        warn "Theme converter script not found: $CONVERTER_SCRIPT"
-        info "Automatic theme generation from Alacritty configs will not work"
-    fi
-
-    local theme_count=0
-    if [[ ! -d "$ZED_THEMES_DIR" ]]; then
-        warn "No Zed themes directory found"
-    fi
-
-    local zed_theme
-    zed_theme=$(map_theme_name "$current_theme")
-
-    local test_json='{"theme": "old_theme"}'
-    local updated_json=$(echo "$test_json" | sed 's/"theme"[[:space:]]*:[[:space:]]*"[^"]*"/"theme": "test"/')
-    if ! echo "$updated_json" | grep -q '"theme": "test"'; then
-        error "JSON manipulation failed"
-        return 1
-    fi
-
-    success "Setup test completed successfully"
-    return 0
-}
-
-stop_watcher() {
-    if systemctl --user is-active --quiet omazed.service 2>/dev/null; then
-        info "Stopping omazed systemd service..."
-        if systemctl --user stop omazed.service; then
-            success "Systemd service stopped ✓"
-        else
-            error "Failed to stop systemd service"
-            return 1
-        fi
-    else
-        info "Systemd service is not running"
-    fi
-}
-
 cleanup() {
     return 0
 }
@@ -627,22 +389,16 @@ USAGE:
     $0 [COMMAND] [OPTIONS]
 
 COMMANDS:
-    start       Start the theme watcher (systemd service)
-    status      Check if omazed is running
-    stop        Stop the systemd service
-    reload      Restart the systemd service
-    watch       Start watching for theme changes (foreground)
-    test        Test current setup
+    setup       Set up themes and automatic theme sync hook
     sync        Sync theme once and exit
     set         Set theme by name (used by omarchy hooks)
-    setup       Set up themes and service for current user
 
 OPTIONS:
     -h, --help  Show this help
 
 EXAMPLES:
     $0 set "tokyo-night"    # Set Zed theme to Tokyo Night
-    $0 sync                 # Sync current omarchy theme to Zed
+    $0 sync   # Set Zed theme with system theme
 
 EOF
 }
@@ -658,30 +414,6 @@ main() {
 
     while [[ $# -gt 0 ]]; do
         case $1 in
-            start)
-                command="start"
-                shift
-                ;;
-            status)
-                command="status"
-                shift
-                ;;
-            stop)
-                command="stop"
-                shift
-                ;;
-            reload|restart)
-                command="reload"
-                shift
-                ;;
-            watch)
-                command="watch"
-                shift
-                ;;
-            test)
-                command="test"
-                shift
-                ;;
             sync)
                 command="sync"
                 shift
@@ -709,26 +441,10 @@ main() {
     done
 
     case $command in
-        start)
-            start_watcher
-            ;;
-        status)
-            check_status
-            ;;
-        stop)
-            stop_watcher
-            ;;
-        reload)
-            reload_service
-            ;;
-        test)
-            check_deps
-            test_setup
-            ;;
         sync)
-            check_deps
-            handle_theme_change
+            sync_theme
             ;;
+
         set)
             if [[ -z "$theme_arg" ]]; then
                 error "Theme name required for 'set' command"
@@ -739,10 +455,6 @@ main() {
             ;;
         setup)
             setup_user
-            ;;
-        watch)
-            check_deps
-            start_watching
             ;;
     esac
 }

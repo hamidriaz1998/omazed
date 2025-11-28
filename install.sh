@@ -18,11 +18,11 @@ BIN_DIR="$HOME/.local/bin"
 SERVICE_DIR="$HOME/.config/systemd/user"
 OMARCHY_HOOKS_DIR="$HOME/.config/omarchy/hooks"
 THEME_SET_HOOK="$OMARCHY_HOOKS_DIR/theme-set"
-SYNC_SCRIPT="omazed"
+MAIN_SCRIPT="omazed"
 CONVERTER_SCRIPT="omazed-converter.sh"
 ZED_THEMES_DIR="$HOME/.config/zed/themes"
 
-log() { echo -e " $* "; }
+log() { echo -e "${GREEN}[INFO]${NC} $* "; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; }
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
@@ -50,25 +50,6 @@ check_omarchy_hook_support() {
     return 1
 }
 
-check_dependencies() {
-    local missing=()
-
-    # Only require inotify-tools if we're using systemd (no hook support)
-    if ! check_omarchy_hook_support; then
-        if ! command -v inotifywait >/dev/null 2>&1; then
-            missing+=("inotify-tools")
-        fi
-    fi
-
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        error "Missing dependencies: ${missing[*]}"
-        info "Install with: sudo pacman -S ${missing[*]}"
-        exit 1
-    fi
-
-    log "Dependencies satisfied ✓"
-}
-
 check_zed() {
 
     # Try common Zed command names
@@ -84,7 +65,6 @@ check_zed() {
         log "Zed found: $zed_cmd ✓"
     else
         warn "Zed not found in PATH"
-        info "Install Zed from: https://zed.dev"
         read -p "Continue anyway? (y/N): " -r
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             exit 1
@@ -108,8 +88,8 @@ check_omarchy() {
 
 install_script() {
 
-    if [[ ! -f "$SCRIPT_DIR/$SYNC_SCRIPT" ]]; then
-        error "Sync script not found: $SCRIPT_DIR/$SYNC_SCRIPT"
+    if [[ ! -f "$SCRIPT_DIR/$MAIN_SCRIPT" ]]; then
+        error "Sync script not found: $SCRIPT_DIR/$MAIN_SCRIPT"
         exit 1
     fi
 
@@ -119,12 +99,12 @@ install_script() {
     fi
 
     mkdir -p "$BIN_DIR"
-    cp "$SCRIPT_DIR/$SYNC_SCRIPT" "$BIN_DIR/"
+    cp "$SCRIPT_DIR/$MAIN_SCRIPT" "$BIN_DIR/"
     cp "$SCRIPT_DIR/$CONVERTER_SCRIPT" "$BIN_DIR/"
-    chmod +x "$BIN_DIR/$SYNC_SCRIPT"
+    chmod +x "$BIN_DIR/$MAIN_SCRIPT"
     chmod +x "$BIN_DIR/$CONVERTER_SCRIPT"
 
-    log "Sync Script installed to: $BIN_DIR/$SYNC_SCRIPT ✓"
+    log "Sync Script installed to: $BIN_DIR/$MAIN_SCRIPT ✓"
     log "Converter Script installed to: $BIN_DIR/$CONVERTER_SCRIPT ✓"
 }
 
@@ -180,7 +160,7 @@ EOF
     # Remove old omazed hook if it exists (for idempotency)
     if grep -q "$hook_marker_start" "$THEME_SET_HOOK" 2>/dev/null; then
         sed -i "/$hook_marker_start/,/$hook_marker_end/d" "$THEME_SET_HOOK"
-        info "Removed old omazed hook"
+        log "Removed old omazed hook"
     fi
 
     # Append omazed hook
@@ -193,7 +173,6 @@ EOF
 
     chmod +x "$THEME_SET_HOOK"
     log "Omarchy hook configured ✓"
-    info "Theme changes will now trigger via omarchy hooks"
 }
 
 migrate_from_systemd() {
@@ -222,42 +201,6 @@ migrate_from_systemd() {
     return 1
 }
 
-create_systemd_service() {
-    log "Setting up automatic theme sync (systemd method)..."
-
-    info "Note: Omarchy hook system not detected, using systemd watcher"
-    info "This requires inotify-tools and a background service"
-
-    mkdir -p "$SERVICE_DIR"
-    cp "$SCRIPT_DIR/omazed.service" "$SERVICE_DIR/"
-
-    # Update paths in service file
-    sed -i "s|%h|$HOME|g" "$SERVICE_DIR/omazed.service"
-
-    # Enable and start service automatically
-    systemctl --user daemon-reload
-    systemctl --user enable omazed.service
-    systemctl --user start omazed.service
-    sleep 2
-
-    if systemctl --user is-active --quiet omazed.service; then
-        log "Automatic theme sync enabled ✓"
-    else
-        warn "Service setup failed - you can start manually with:"
-        warn "  systemctl --user start omazed.service"
-    fi
-}
-
-test_installation() {
-    log "Testing installation..."
-
-    if "$BIN_DIR/$SYNC_SCRIPT" test; then
-        log "Installation test passed ✓"
-    else
-        warn "Installation test failed"
-    fi
-}
-
 print_completion() {
     local using_hooks=$1
 
@@ -270,7 +213,7 @@ print_completion() {
 🎉 Omazed is ready for live theme switching!
 
 📋 WHAT WAS INSTALLED:
-   • Sync script: $BIN_DIR/$SYNC_SCRIPT
+   • Sync script: $BIN_DIR/$MAIN_SCRIPT
    • Converter script: $BIN_DIR/$CONVERTER_SCRIPT
    • Zed themes: ~/.config/zed/themes/
 EOF
@@ -288,15 +231,11 @@ EOF
    # Set a specific theme
    omazed set "theme-name"
 
-   # Test current setup
-   omazed test
-
    # Sync current theme once
    omazed sync
 EOF
     else
         cat << EOF
-   • Systemd service
 
 ✅ LIVE THEME SWITCHING IS NOW ACTIVE!
 
@@ -304,24 +243,9 @@ EOF
    No further action needed!
 
 🔧 MANUAL COMMANDS (if needed):
-   # Start the theme watcher (systemd service)
-   omazed start
-
-   # Stop systemd service
-   omazed stop
-
-   # Check if omazed is running
-   omazed status
-
-   # Test current setup
-   omazed test
-
    # Sync theme once and exit
    omazed sync
 
-📊 SERVICE MANAGEMENT:
-   systemctl --user status omazed.service
-   systemctl --user restart omazed.service
 EOF
     fi
 
@@ -337,7 +261,6 @@ main() {
 
     log "Starting installation..."
 
-    check_dependencies
     check_zed
     check_omarchy
     install_script
@@ -345,8 +268,6 @@ main() {
 
     local using_hooks="false"
     if check_omarchy_hook_support; then
-        log "Omarchy hook system available - using hook integration"
-        using_hooks="true"
 
         if migrate_from_systemd; then
             info "Successfully migrated from systemd to hooks"
@@ -354,14 +275,10 @@ main() {
 
         setup_omarchy_hook
     else
-        warn "Omarchy hook system not available - using systemd watcher"
-        info "Consider updating omarchy for hook support in the future"
-        create_systemd_service
+        error "Omarchy hook system not available. Please update omarchy or install a older version of omazed < 1.2"
+        return 1
     fi
 
-    test_installation
-
-    print_completion "$using_hooks"
     log "Installation completed! Live theme switching is now active! 🎉"
 }
 
@@ -376,11 +293,9 @@ OPTIONS:
     -h, --help    Show this help
 
 This script:
-1. Checks for required dependencies (inotify-tools)
-2. Installs the sync script to ~/.local/bin/
-3. Copies themes to ~/.config/zed/themes/
-4. Sets up systemd service for auto-start
-5. Tests the installation
+1. Installs the sync script to ~/.local/bin/
+2. Copies themes to ~/.config/zed/themes/
+3. Sets up automatic theme sync hook
 
 After installation, your Zed theme will automatically sync with your Omarchy system theme.
 EOF
