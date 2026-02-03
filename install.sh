@@ -15,7 +15,6 @@ NC='\033[0m'
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
-SERVICE_DIR="$HOME/.config/systemd/user"
 OMARCHY_HOOKS_DIR="$HOME/.config/omarchy/hooks"
 THEME_SET_HOOK="$OMARCHY_HOOKS_DIR/theme-set"
 MAIN_SCRIPT="omazed"
@@ -154,32 +153,6 @@ EOF
     log "Omarchy hook configured ✓"
 }
 
-migrate_from_systemd() {
-    # Check if user has existing systemd setup
-    if systemctl --user is-enabled omazed.service 2>/dev/null; then
-        info "Detected existing systemd setup, migrating to omarchy hooks..."
-
-        # Stop and disable the service
-        if systemctl --user stop omazed.service 2>/dev/null; then
-            log "Stopped systemd service ✓"
-        fi
-
-        if systemctl --user disable omazed.service 2>/dev/null; then
-            log "Disabled systemd service ✓"
-        fi
-
-        # Optionally remove the service file (user can manually clean up)
-        if [[ -f "$SERVICE_DIR/omazed.service" ]]; then
-            info "Old systemd service file remains at: $SERVICE_DIR/omazed.service"
-            info "You can remove it manually if desired"
-        fi
-
-        log "Migration from systemd to hooks completed ✓"
-        return 0
-    fi
-    return 1
-}
-
 print_completion() {
     local using_hooks=$1
 
@@ -246,15 +219,16 @@ main() {
     cleanup_old_themes
     local using_hooks="false"
     if check_omarchy_hook_support; then
-
-        if migrate_from_systemd; then
-            info "Successfully migrated from systemd to hooks"
-        fi
-
         setup_omarchy_hook
     else
         error "Omarchy hook system not available. Please update omarchy or install a older version of omazed < 1.2"
         return 1
+    fi
+
+    if "$BIN_DIR/$MAIN_SCRIPT" sync; then
+        log "Initial sync completed"
+    else
+        warn "Initial sync failed - run: omazed sync"
     fi
 
     log "Installation completed! Live theme switching is now active! 🎉"

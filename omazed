@@ -7,7 +7,6 @@ ZED_CONFIG_DIR="$HOME/.config/zed"
 ZED_THEMES_DIR="$ZED_CONFIG_DIR/themes"
 ZED_SETTINGS_PATH="$ZED_CONFIG_DIR/settings.json"
 LOG_FILE="$HOME/.local/share/omazed/sync.log"
-SERVICE_DIR="$HOME/.config/systemd/user"
 OMARCHY_HOOKS_DIR="$HOME/.config/omarchy/hooks"
 THEME_SET_HOOK="$OMARCHY_HOOKS_DIR/theme-set"
 GENERATOR_SCRIPT="$HOME/.local/bin/omazed-generator.sh"
@@ -123,29 +122,6 @@ EOF
     success "✓ Omarchy hook configured"
 }
 
-migrate_from_systemd() {
-    if systemctl --user is-enabled omazed.service &>/dev/null; then
-        info "Detected existing systemd setup, migrating to omarchy hooks..."
-
-        if systemctl --user stop omazed.service 2>/dev/null; then
-            success "✓ Stopped systemd service"
-        fi
-
-        if systemctl --user disable omazed.service 2>/dev/null; then
-            success "✓ Disabled systemd service"
-        fi
-
-        if [[ -f "$SERVICE_DIR/omazed.service" ]]; then
-            info "Old systemd service file remains at: $SERVICE_DIR/omazed.service"
-            info "You can remove it manually if desired"
-        fi
-
-        success "✓ Migration from systemd to hooks completed"
-        return 0
-    fi
-    return 1
-}
-
 setup_user() {
     info "Setting up Omazed for user: $USER"
     echo ""
@@ -153,9 +129,6 @@ setup_user() {
     mkdir -p "$ZED_THEMES_DIR"
 
     if check_omarchy_hook_support; then
-        if migrate_from_systemd; then
-            success "✓ Successfully migrated from systemd to hooks"
-        fi
         setup_omarchy_hook
     else
         error "Omarchy hook system not available. Please update omarchy or install a older version of omazed < 1.2"

@@ -15,13 +15,11 @@ NC='\033[0m' # No Color
 # Configuration
 BIN_DIR="$HOME/.local/bin"
 DATA_DIR="$HOME/.local/share/omazed"
-SERVICE_DIR="$HOME/.config/systemd/user"
 OMARCHY_HOOKS_DIR="$HOME/.config/omarchy/hooks"
 THEME_SET_HOOK="$OMARCHY_HOOKS_DIR/theme-set"
 SYNC_SCRIPT="$BIN_DIR/omazed"
 GENERATOR_SCRIPT="$BIN_DIR/omazed-generator.sh"
 TEMPLATE_FILE="$BIN_DIR/omazed-theme.tpl"
-SERVICE_FILE="$SERVICE_DIR/omazed.service"
 
 # Logging functions
 log() {
@@ -69,9 +67,6 @@ check_installation() {
         found_components+=("Theme Template File")
     fi
 
-    if [[ -f "$SERVICE_FILE" ]]; then
-        found_components+=("Systemd Service")
-    fi
 
     if [[ -f "$THEME_SET_HOOK" ]] && grep -q "omazed" "$THEME_SET_HOOK" 2>/dev/null; then
         found_components+=("Omarchy Hook")
@@ -81,13 +76,6 @@ check_installation() {
         found_components+=("Application Data Directory")
     fi
 
-    if systemctl --user is-enabled omazed.service >/dev/null 2>&1; then
-        found_components+=("Enabled Service")
-    fi
-
-    if systemctl --user is-active omazed.service >/dev/null 2>&1; then
-        found_components+=("Running Service")
-    fi
 
     if [[ ${#found_components[@]} -eq 0 ]]; then
         warn "No installation components found"
@@ -96,48 +84,6 @@ check_installation() {
         local IFS=', '
         info "Found components: ${found_components[*]}"
         return 0
-    fi
-}
-
-# Stop and disable systemd service
-remove_service() {
-    info "Removing systemd service..."
-
-    # Stop the service if running
-    if systemctl --user is-active --quiet omazed.service 2>/dev/null; then
-        log "Stopping omazed service..."
-        if systemctl --user stop omazed.service; then
-            log "Service stopped successfully ✓"
-        else
-            warn "Failed to stop service gracefully"
-        fi
-    fi
-
-    # Disable the service if enabled
-    if systemctl --user is-enabled --quiet omazed.service 2>/dev/null; then
-        log "Disabling omazed service..."
-        if systemctl --user disable omazed.service; then
-            log "Service disabled successfully ✓"
-        else
-            warn "Failed to disable service"
-        fi
-    fi
-
-    # Remove service file
-    if [[ -f "$SERVICE_FILE" ]]; then
-        log "Removing service file..."
-        if rm -f "$SERVICE_FILE"; then
-            log "Service file removed ✓"
-        else
-            error "Failed to remove service file"
-        fi
-    fi
-
-    # Reload systemd daemon
-    if systemctl --user daemon-reload; then
-        log "Systemd daemon reloaded ✓"
-    else
-        warn "Failed to reload systemd daemon"
     fi
 }
 
@@ -246,11 +192,9 @@ print_completion() {
 📋 WHAT WAS REMOVED:
 
    ✓ Theme sync script
-    ✓ Theme generator script
-   ✓ Systemd service (if present)
+   ✓ Theme generator script
    ✓ Omarchy hook integration (if present)
    ✓ Application data directory and logs
-   ✓ Service configuration
 
 📝 MANUAL CLEANUP (optional):
 
@@ -344,7 +288,6 @@ EOF
 
 
     # Remove components
-    remove_service
     remove_omarchy_hook
     remove_sync_script
     remove_data_dir
