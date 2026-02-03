@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Simple installation script for Omazed
-# Live theme switching for zed in omarchy - just installs themes and sets up the sync tool
+# Live theme switching for zed in omarchy - installs the sync tool and generator
 
 set -euo pipefail
 
@@ -19,8 +19,8 @@ SERVICE_DIR="$HOME/.config/systemd/user"
 OMARCHY_HOOKS_DIR="$HOME/.config/omarchy/hooks"
 THEME_SET_HOOK="$OMARCHY_HOOKS_DIR/theme-set"
 MAIN_SCRIPT="omazed"
-CONVERTER_SCRIPT="omazed-converter.sh"
-ZED_THEMES_DIR="$HOME/.config/zed/themes"
+GENERATOR_SCRIPT="omazed-generator.sh"
+TEMPLATE_FILE="omazed-theme.tpl"
 
 log() { echo -e "${GREEN}[INFO]${NC} $* "; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
@@ -93,49 +93,28 @@ install_script() {
         exit 1
     fi
 
-    if [[ ! -f "$SCRIPT_DIR/$CONVERTER_SCRIPT" ]]; then
-        error "Converter script not found: $SCRIPT_DIR/$CONVERTER_SCRIPT"
+    if [[ ! -f "$SCRIPT_DIR/$GENERATOR_SCRIPT" ]]; then
+        error "Generator script not found: $SCRIPT_DIR/$GENERATOR_SCRIPT"
+        exit 1
+    fi
+
+    if [[ ! -f "$SCRIPT_DIR/$TEMPLATE_FILE" ]]; then
+        error "Template file not found: $SCRIPT_DIR/$TEMPLATE_FILE"
         exit 1
     fi
 
     mkdir -p "$BIN_DIR"
     cp "$SCRIPT_DIR/$MAIN_SCRIPT" "$BIN_DIR/"
-    cp "$SCRIPT_DIR/$CONVERTER_SCRIPT" "$BIN_DIR/"
+    cp "$SCRIPT_DIR/$GENERATOR_SCRIPT" "$BIN_DIR/"
+    cp "$SCRIPT_DIR/$TEMPLATE_FILE" "$BIN_DIR/"
     chmod +x "$BIN_DIR/$MAIN_SCRIPT"
-    chmod +x "$BIN_DIR/$CONVERTER_SCRIPT"
+    chmod +x "$BIN_DIR/$GENERATOR_SCRIPT"
 
     log "Sync Script installed to: $BIN_DIR/$MAIN_SCRIPT ✓"
-    log "Converter Script installed to: $BIN_DIR/$CONVERTER_SCRIPT ✓"
+    log "Generator script installed to: $BIN_DIR/$GENERATOR_SCRIPT ✓"
+    log "Template file installed to: $BIN_DIR/$TEMPLATE_FILE ✓"
 }
 
-install_themes() {
-
-    # Create Zed themes directory
-    mkdir -p "$ZED_THEMES_DIR"
-
-    if [[ ! -d "$SCRIPT_DIR/themes" ]]; then
-        error "Themes directory not found: $SCRIPT_DIR/themes"
-        return 1
-    fi
-
-    local installed_count=0
-
-    for theme_file in "$SCRIPT_DIR/themes"/*.json; do
-        if [[ -f "$theme_file" ]]; then
-            local basename=$(basename "$theme_file")
-            cp "$theme_file" "$ZED_THEMES_DIR/"
-            installed_count=$((installed_count + 1))
-        fi
-    done
-
-    if [[ $installed_count -gt 0 ]]; then
-        log "Installed $installed_count theme(s) to $ZED_THEMES_DIR"
-        return 0
-    else
-        error "No themes were installed"
-        return 1
-    fi
-}
 setup_omarchy_hook() {
     log "Setting up omarchy hook integration..."
 
@@ -214,8 +193,8 @@ print_completion() {
 
 📋 WHAT WAS INSTALLED:
    • Sync script: $BIN_DIR/$MAIN_SCRIPT
-   • Converter script: $BIN_DIR/$CONVERTER_SCRIPT
-   • Zed themes: ~/.config/zed/themes/
+   • Generator script: $BIN_DIR/$GENERATOR_SCRIPT
+   • Generated Zed theme: ~/.config/zed/themes/omazed.json
 EOF
 
     if [[ "$using_hooks" == "true" ]]; then
@@ -264,8 +243,7 @@ main() {
     check_zed
     check_omarchy
     install_script
-    install_themes
-
+    cleanup_old_themes
     local using_hooks="false"
     if check_omarchy_hook_support; then
 
@@ -282,6 +260,28 @@ main() {
     log "Installation completed! Live theme switching is now active! 🎉"
 }
 
+cleanup_old_themes() {
+    local themes_dir="$HOME/.config/zed/themes"
+    local removed=0
+
+    if [[ ! -d "$themes_dir" ]]; then
+        return 0
+    fi
+
+    shopt -s nullglob
+    for theme_file in "$themes_dir"/*.json; do
+        if [[ "$(basename "$theme_file")" != "omazed.json" ]]; then
+            rm -f "$theme_file"
+            removed=$((removed + 1))
+        fi
+    done
+    shopt -u nullglob
+
+    if [[ $removed -gt 0 ]]; then
+        log "Removed $removed old Zed theme file(s)"
+    fi
+}
+
 # Handle help
 if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
     cat << EOF
@@ -294,7 +294,7 @@ OPTIONS:
 
 This script:
 1. Installs the sync script to ~/.local/bin/
-2. Copies themes to ~/.config/zed/themes/
+2. Installs the generator and template
 3. Sets up automatic theme sync hook
 
 After installation, your Zed theme will automatically sync with your Omarchy system theme.

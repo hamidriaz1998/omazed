@@ -19,7 +19,8 @@ SERVICE_DIR="$HOME/.config/systemd/user"
 OMARCHY_HOOKS_DIR="$HOME/.config/omarchy/hooks"
 THEME_SET_HOOK="$OMARCHY_HOOKS_DIR/theme-set"
 SYNC_SCRIPT="$BIN_DIR/omazed"
-CONVERTER_SCRIPT="$BIN_DIR/omazed-converter.sh"
+GENERATOR_SCRIPT="$BIN_DIR/omazed-generator.sh"
+TEMPLATE_FILE="$BIN_DIR/omazed-theme.tpl"
 SERVICE_FILE="$SERVICE_DIR/omazed.service"
 
 # Logging functions
@@ -60,8 +61,12 @@ check_installation() {
         found_components+=("Theme Sync Script")
     fi
 
-    if [[ -f "$CONVERTER_SCRIPT" ]]; then
-        found_components+=("Theme Converter Script")
+    if [[ -f "$GENERATOR_SCRIPT" ]]; then
+        found_components+=("Theme Generator Script")
+    fi
+
+    if [[ -f "$TEMPLATE_FILE" ]]; then
+        found_components+=("Theme Template File")
     fi
 
     if [[ -f "$SERVICE_FILE" ]]; then
@@ -136,7 +141,7 @@ remove_service() {
     fi
 }
 
-# Remove theme watcher script and converter
+# Remove theme watcher script and generator
 remove_sync_script() {
     info "Removing theme sync script..."
 
@@ -149,12 +154,20 @@ remove_sync_script() {
         fi
     fi
 
-    # Remove the converter script
-    if [[ -f "$CONVERTER_SCRIPT" ]]; then
-        if rm -f "$CONVERTER_SCRIPT"; then
-            log "Theme converter script removed ✓"
+    # Remove the generator script
+    if [[ -f "$GENERATOR_SCRIPT" ]]; then
+        if rm -f "$GENERATOR_SCRIPT"; then
+            log "Theme generator script removed ✓"
         else
-            error "Failed to remove theme converter script"
+            error "Failed to remove theme generator script"
+        fi
+    fi
+
+    if [[ -f "$TEMPLATE_FILE" ]]; then
+        if rm -f "$TEMPLATE_FILE"; then
+            log "Theme template file removed ✓"
+        else
+            error "Failed to remove theme template file"
         fi
     fi
 }
@@ -192,20 +205,15 @@ remove_omarchy_hook() {
 
 # Check for Zed dev extension
 check_zed_themes() {
-    info "Checking for installed Zed themes..."
+    info "Checking for generated Zed theme..."
 
-    local zed_themes_dir="$HOME/.config/zed/themes"
+    local generated_theme="$HOME/.config/zed/themes/omazed.json"
 
-    if [[ -d "$zed_themes_dir" ]]; then
-        local theme_count
-        theme_count=$(find "$zed_themes_dir" -name "*.json" 2>/dev/null | wc -l)
-        if [[ $theme_count -gt 0 ]]; then
-            warn "Found $theme_count theme files in Zed themes directory"
-            info "Theme files are left in: $zed_themes_dir"
-            info "You can remove them manually if desired"
-        fi
+    if [[ -f "$generated_theme" ]]; then
+        warn "Found generated theme: $generated_theme"
+        info "You can remove it manually if desired"
     else
-        log "No Zed themes directory found ✓"
+        log "No generated theme found ✓"
     fi
 }
 
@@ -238,7 +246,7 @@ print_completion() {
 📋 WHAT WAS REMOVED:
 
    ✓ Theme sync script
-   ✓ Theme converter script
+    ✓ Theme generator script
    ✓ Systemd service (if present)
    ✓ Omarchy hook integration (if present)
    ✓ Application data directory and logs
@@ -246,8 +254,8 @@ print_completion() {
 
 📝 MANUAL CLEANUP (optional):
 
-   • Remove Zed themes if desired:
-     - ~/.config/zed/themes/
+   • Remove generated theme if desired:
+     - ~/.config/zed/themes/omazed.json
 
    • Review Zed settings if needed:
      - ~/.config/zed/settings.json

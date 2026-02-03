@@ -10,10 +10,20 @@ LOG_FILE="$HOME/.local/share/omazed/sync.log"
 SERVICE_DIR="$HOME/.config/systemd/user"
 OMARCHY_HOOKS_DIR="$HOME/.config/omarchy/hooks"
 THEME_SET_HOOK="$OMARCHY_HOOKS_DIR/theme-set"
-CONVERTER_SCRIPT="$HOME/.local/bin/omazed-converter.sh"
+GENERATOR_SCRIPT="$HOME/.local/bin/omazed-generator.sh"
+TEMPLATE_FILE="$HOME/.local/bin/omazed-theme.tpl"
+INITIALIZED_MARKER="$HOME/.local/share/omazed/initialized"
+
+if [[ -f "/usr/bin/omazed-generator.sh" ]]; then
+    GENERATOR_SCRIPT="/usr/bin/omazed-generator.sh"
+fi
 
 if [[ -f "/usr/bin/omazed-converter.sh" ]]; then
-    CONVERTER_SCRIPT="/usr/bin/omazed-converter.sh"
+    GENERATOR_SCRIPT="/usr/bin/omazed-converter.sh"
+fi
+
+if [[ -f "/usr/bin/omazed-theme.tpl" ]]; then
+    TEMPLATE_FILE="/usr/bin/omazed-theme.tpl"
 fi
 
 RED='\033[0;31m'
@@ -54,33 +64,20 @@ set_theme_from_name() {
 
     info "Setting Zed theme for: $theme_name"
 
-    local zed_theme
-    zed_theme=$(map_theme_name "$theme_name")
+    local theme_file="$ZED_THEMES_DIR/omazed.json"
 
-    local theme_file="$ZED_THEMES_DIR/${theme_name}.json"
-    if [[ ! -f "$theme_file" ]] || [[ "$theme_name" == "aether" ]]; then
-        if [[ ! -f "$theme_file" ]]; then
-            warn "Theme file not found: $theme_file"
+    info "Generating Zed theme..."
+    if generate_zed_theme; then
+        if [[ -f "$theme_file" ]]; then
+            success "Generated Zed theme"
         fi
-        info "Attempting to generate from Alacritty config..."
-
-        if convert_alacritty_to_zed "$zed_theme"; then
-            if [[ -f "$theme_file" ]]; then
-                success "Generated Zed theme from Alacritty config"
-            fi
-        else
-            info "Could not generate theme, skipping update"
-            return 0
-        fi
-    fi
-
-    if update_zed_theme "$zed_theme"; then
-        success "Theme set: $theme_name → $zed_theme"
-        return 0
     else
-        error "Failed to set theme"
-        return 1
+        info "Could not generate theme, skipping update"
+        return 0
     fi
+
+    success "Theme generated for: $theme_name"
+    return 0
 }
 
 check_omarchy_hook_support() {
@@ -155,37 +152,6 @@ setup_user() {
 
     mkdir -p "$ZED_THEMES_DIR"
 
-    if [[ -d "/usr/share/omazed/themes" ]]; then
-        info "Installing themes..."
-        local themes_source="/usr/share/omazed/themes"
-
-        local installed_count=0
-
-        if ! ls "$themes_source"/*.json >/dev/null 2>&1; then
-            warn "No .json files found in $themes_source"
-            error "Theme directory exists but contains no .json files"
-            return 1
-        fi
-
-        for theme_file in "$themes_source"/*.json; do
-            if [[ -f "$theme_file" ]]; then
-                if cp "$theme_file" "$ZED_THEMES_DIR/"; then
-                    installed_count=$((installed_count + 1))
-                else
-                    error "Failed to copy: $(basename "$theme_file")"
-                    return 1
-                fi
-            fi
-        done
-
-        if [[ $installed_count -gt 0 ]]; then
-            success "✓ Installed $installed_count themes to $ZED_THEMES_DIR"
-        else
-            error "No themes were installed"
-            return 1
-        fi
-    fi
-
     if check_omarchy_hook_support; then
         if migrate_from_systemd; then
             success "✓ Successfully migrated from systemd to hooks"
@@ -209,7 +175,13 @@ setup_user() {
 get_current_theme() {
     local theme=""
 
-    if [[ -f "$OMARCHY_THEME_PATH" ]]; then
+    local theme_name_path="$HOME/.config/omarchy/current/theme.name"
+
+    if [[ -f "$theme_name_path" ]]; then
+        theme=$(cat "$theme_name_path" 2>/dev/null | tr -d '\n\r' || echo "")
+    fi
+
+    if [[ -z "$theme" && -f "$OMARCHY_THEME_PATH" ]]; then
         theme=$(cat "$OMARCHY_THEME_PATH" 2>/dev/null | tr -d '\n\r' || echo "")
     fi
 
@@ -224,52 +196,62 @@ get_current_theme() {
     echo "$theme"
 }
 
-map_theme_name() {
-    local omarchy_theme="$1"
+generate_zed_theme() {
+    local colors_toml="$OMARCHY_THEME_PATH/colors.toml"
+    local alacritty_toml="$OMARCHY_THEME_PATH/alacritty.toml"
+    local source_file="$colors_toml"
+    local appearance="dark"
 
-    # Transform: capitalize first letter and letters after dashes, then replace dashes with spaces
-    echo "$omarchy_theme" | sed 's/\(^\|[-]\)\([a-z]\)/\1\u\2/g; s/-/ /g'
-}
-
-convert_alacritty_to_zed() {
-    local theme_name="$1"
-    local alacritty_config="$OMARCHY_THEME_PATH/alacritty.toml"
-
-    if [[ ! -f "$CONVERTER_SCRIPT" ]]; then
-        error "Converter script not found: $CONVERTER_SCRIPT"
+    if [[ ! -f "$GENERATOR_SCRIPT" ]]; then
+        error "Theme generator script not found: $GENERATOR_SCRIPT"
         return 1
     fi
 
-    if [[ ! -f "$alacritty_config" ]]; then
-        warn "Alacritty config not found: $alacritty_config"
+    if [[ ! -f "$colors_toml" ]]; then
+        if [[ -f "$alacritty_toml" ]]; then
+            warn "colors.toml not found: $colors_toml"
+            info "Falling back to Alacritty config: $alacritty_toml"
+            source_file="$alacritty_toml"
+        else
+            warn "colors.toml not found: $colors_toml"
+            warn "Alacritty config not found: $alacritty_toml"
+            return 1
+        fi
+    fi
+
+    if [[ ! -f "$TEMPLATE_FILE" ]]; then
+        warn "Template file not found: $TEMPLATE_FILE"
         return 1
     fi
 
-    info "Converting Alacritty theme to Zed theme..."
-    info "Source: $alacritty_config"
-    info "Target: $ZED_THEMES_DIR"
+    if [[ -f "$OMARCHY_THEME_PATH/light.mode" ]]; then
+        appearance="light"
+    fi
+
+    info "Generating Zed theme from colors..."
+    info "Source: $source_file"
+    info "Template: $TEMPLATE_FILE"
+    info "Target: $ZED_THEMES_DIR/omazed.json"
+    info "Appearance: $appearance"
 
     mkdir -p "$ZED_THEMES_DIR"
 
-    local conversion_output
-    if conversion_output=$(bash "$CONVERTER_SCRIPT" "$alacritty_config" "$theme_name" "$ZED_THEMES_DIR" 2>&1); then
-        success "Successfully converted Alacritty theme to Zed theme"
-        info "Conversion output: $conversion_output"
+    local generation_output
+    if generation_output=$(bash "$GENERATOR_SCRIPT" "$source_file" "$ZED_THEMES_DIR" "$TEMPLATE_FILE" "$appearance" 2>&1); then
+        success "Successfully generated Zed theme"
+        info "Generation output: $generation_output"
         return 0
     else
-        error "Failed to convert Alacritty theme"
-        error "Conversion error: $conversion_output"
+        error "Failed to generate theme"
+        error "Generation error: $generation_output"
         return 1
     fi
 }
 
-update_zed_theme() {
-    local theme_name="$1"
+set_initial_theme_once() {
+    local theme_name="Omazed"
 
-    info "Setting Zed theme to: $theme_name"
-
-    if [[ -e "/tmp/omarchy-boot-in-progress" ]]; then
-        info "Omarchy boot in progress, deferring theme update"
+    if [[ -f "$INITIALIZED_MARKER" ]]; then
         return 0
     fi
 
@@ -277,62 +259,83 @@ update_zed_theme() {
 
     if [[ ! -f "$ZED_SETTINGS_PATH" ]]; then
         echo '{"theme": "'"$theme_name"'"}' > "$ZED_SETTINGS_PATH"
-    else
-        if grep -q '"theme"' "$ZED_SETTINGS_PATH"; then
-            temp_file=$(mktemp)
-
-            awk -v theme="$theme_name" '
-            BEGIN {
-                in_theme_object = 0
-                brace_count = 0
-                theme_replaced = 0
-            }
-            /"theme"[[:space:]]*:[[:space:]]*"[^"]*"/ {
-                # Simple string theme - replace directly
-                gsub(/"theme"[[:space:]]*:[[:space:]]*"[^"]*"/, "\"theme\": \"" theme "\"")
-                theme_replaced = 1
-                print
-                next
-            }
-            /"theme"[[:space:]]*:[[:space:]]*\{/ {
-                # Object theme starts - replace with simple string
-                gsub(/"theme"[[:space:]]*:[[:space:]]*\{.*/, "\"theme\": \"" theme "\",")
-                in_theme_object = 1
-                brace_count = 1
-                theme_replaced = 1
-                print
-                next
-            }
-            in_theme_object == 1 {
-                # Count braces to find end of theme object
-                brace_count += gsub(/\{/, "{")
-                brace_count -= gsub(/\}/, "}")
-                if (brace_count <= 0) {
-                    in_theme_object = 0
-                }
-                # Skip this line (part of theme object)
-                next
-            }
-            { print }
-            ' "$ZED_SETTINGS_PATH" > "$temp_file"
-
-            mv "$temp_file" "$ZED_SETTINGS_PATH"
-        else
-            # Add theme before the last closing brace
-            sed -i '$s/}/,\n  "theme": "'"$theme_name"'"\n}/' "$ZED_SETTINGS_PATH"
-        fi
-    fi
-
-    # Verify the update worked
-    if grep -q "\"theme\"[[:space:]]*:[[:space:]]*\"$theme_name\"" "$ZED_SETTINGS_PATH"; then
-        success "Updated Zed settings.json"
+        touch "$INITIALIZED_MARKER"
+        info "Zed theme set to: $theme_name"
         return 0
-    else
-        error "Failed to update settings"
-        info "Current settings.json content around theme:"
-        grep -A 5 -B 2 '"theme"' "$ZED_SETTINGS_PATH" || echo "No theme property found"
-        return 1
     fi
+
+    if grep -q '"theme"' "$ZED_SETTINGS_PATH"; then
+        temp_file=$(mktemp)
+        awk -v theme="$theme_name" '
+        BEGIN {
+            in_theme_object = 0
+            brace_count = 0
+        }
+        /"theme"[[:space:]]*:[[:space:]]*"[^"]*"/ {
+            gsub(/"theme"[[:space:]]*:[[:space:]]*"[^"]*"/, "\"theme\": \"" theme "\"")
+            print
+            next
+        }
+        /"theme"[[:space:]]*:[[:space:]]*\{/ {
+            gsub(/"theme"[[:space:]]*:[[:space:]]*\{.*/, "\"theme\": \"" theme "\",")
+            in_theme_object = 1
+            brace_count = 1
+            print
+            next
+        }
+        in_theme_object == 1 {
+            brace_count += gsub(/\{/, "{")
+            brace_count -= gsub(/\}/, "}")
+            if (brace_count <= 0) {
+                in_theme_object = 0
+            }
+            next
+        }
+        { print }
+        ' "$ZED_SETTINGS_PATH" > "$temp_file"
+
+        mv "$temp_file" "$ZED_SETTINGS_PATH"
+        touch "$INITIALIZED_MARKER"
+        info "Zed theme set to: $theme_name"
+        return 0
+    fi
+
+    temp_file=$(mktemp)
+    awk -v theme="$theme_name" '
+    {
+        lines[NR] = $0
+    }
+    END {
+        close_index = 0
+        for (i = NR; i >= 1; i--) {
+            if (lines[i] ~ /^[[:space:]]*}[[:space:]]*$/) {
+                close_index = i
+                break
+            }
+        }
+
+        if (close_index == 0) {
+            for (i = 1; i <= NR; i++) print lines[i]
+            print "  \"theme\": \"" theme "\""
+            exit
+        }
+
+        prev = close_index - 1
+        while (prev > 0 && lines[prev] ~ /^[[:space:]]*$/) prev--
+        if (prev > 0 && lines[prev] !~ /,[[:space:]]*$/) {
+            lines[prev] = lines[prev] ","
+        }
+
+        for (i = 1; i < close_index; i++) print lines[i]
+        print "  \"theme\": \"" theme "\""
+        print lines[close_index]
+        for (i = close_index + 1; i <= NR; i++) print lines[i]
+    }
+    ' "$ZED_SETTINGS_PATH" > "$temp_file"
+
+    mv "$temp_file" "$ZED_SETTINGS_PATH"
+    touch "$INITIALIZED_MARKER"
+    info "Zed theme set to: $theme_name"
 }
 
 sync_theme() {
@@ -344,33 +347,25 @@ sync_theme() {
         return 1
     fi
 
-    local zed_theme
-    zed_theme=$(map_theme_name "$current_theme")
 
-    local theme_file="$ZED_THEMES_DIR/${current_theme}.json"
-    if [[ ! -f "$theme_file" ]]; then
-        warn "Theme file not found: $theme_file"
+    local theme_file="$ZED_THEMES_DIR/omazed.json"
+    if [[ -f "$theme_file" ]]; then
+        rm -f "$theme_file"
+    fi
 
-        info "Attempting to generate Zed theme from Alacritty config..."
-        if convert_alacritty_to_zed "$zed_theme"; then
-            if [[ -f "$theme_file" ]]; then
-                success "Generated Zed theme from Alacritty config: $theme_file"
-            else
-                warn "Theme conversion completed but fi1le not found at expected location: $theme_file"
-            fi
+    info "Attempting to generate Zed theme..."
+    if generate_zed_theme; then
+        if [[ -f "$theme_file" ]]; then
+            success "Generated Zed theme: $theme_file"
         else
-            info "Available themes: $(ls -1 "$ZED_THEMES_DIR"/*.json 2>/dev/null | xargs -n1 basename | tr '\n' ' ')"
-            info "Skipping Zed theme update - no theme file available and conversion failed"
-            return 0
+            warn "Theme generation completed but file not found at expected location: $theme_file"
         fi
+    else
+        info "Skipping Zed theme update - generation failed"
+        return 0
     fi
 
-    if update_zed_theme "$zed_theme"; then
-        success "Theme sync completed: $current_theme → $zed_theme"
-    else
-        error "Failed to sync theme"
-        return 1
-    fi
+    success "Theme sync completed: $current_theme"
     return 0
 }
 
@@ -439,6 +434,8 @@ main() {
                 ;;
         esac
     done
+
+    set_initial_theme_once
 
     case $command in
         sync)
