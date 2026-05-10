@@ -119,7 +119,8 @@ setup_omarchy_hook() {
 
     local hook_marker_start="# >>> omazed hook - do not edit >>>"
     local hook_marker_end="# <<< omazed hook - do not edit <<<"
-    local hook_command='omazed set "$1"'
+    local omazed_bin="$BIN_DIR/$MAIN_SCRIPT"
+    local hook_command="\"$omazed_bin\" set \"\$1\""
 
     # Create hooks directory if it doesn't exist
     mkdir -p "$OMARCHY_HOOKS_DIR"

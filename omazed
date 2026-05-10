@@ -141,7 +141,9 @@ setup_omarchy_hook() {
 
     local hook_marker_start="# >>> omazed hook - do not edit >>>"
     local hook_marker_end="# <<< omazed hook - do not edit <<<"
-    local hook_command='omazed set "$1"'
+    local omazed_bin
+    omazed_bin=$(command -v omazed 2>/dev/null || echo "$HOME/.local/bin/omazed")
+    local hook_command="\"$omazed_bin\" set \"\$1\""
 
     if [[ ! -f "$THEME_SET_HOOK" ]]; then
         cat > "$THEME_SET_HOOK" << 'EOF'
