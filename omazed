@@ -12,6 +12,7 @@ THEME_SET_HOOK="$OMARCHY_HOOKS_DIR/theme-set"
 GENERATOR_SCRIPT="$HOME/.local/bin/omazed-generator.sh"
 TEMPLATE_FILE="$HOME/.local/bin/omazed-theme.tpl"
 INITIALIZED_MARKER="$HOME/.local/share/omazed/initialized"
+CACHE_DIR="$HOME/.cache/omazed"
 
 if [[ -f "/usr/bin/omazed-generator.sh" ]]; then
     GENERATOR_SCRIPT="/usr/bin/omazed-generator.sh"
@@ -53,6 +54,42 @@ error() {
 echo -e "${RED}[ERROR]${NC} $*" | tee -a "$LOG_FILE" 2>/dev/null || true
 }
 
+sanitize_filename() {
+    echo "$1" | sed 's/[^a-zA-Z0-9._-]/_/g'
+}
+
+get_cache_path() {
+    local theme_name="$1"
+    local safe_name
+    safe_name=$(sanitize_filename "$theme_name")
+    echo "$CACHE_DIR/${safe_name}.json"
+}
+
+is_cache_valid() {
+    local theme_name="$1"
+    local cache_path
+    cache_path=$(get_cache_path "$theme_name")
+
+    [[ ! -f "$cache_path" ]] && return 1
+
+    local source_file="$OMARCHY_THEME_PATH/colors.toml"
+    [[ ! -f "$source_file" ]] && source_file="$OMARCHY_THEME_PATH/alacritty.toml"
+    [[ ! -f "$source_file" ]] && return 1
+
+    local cache_mtime source_mtime template_mtime light_mtime
+    cache_mtime=$(stat -c %Y "$cache_path" 2>/dev/null || echo 0)
+    source_mtime=$(stat -c %Y "$source_file" 2>/dev/null || echo 0)
+    template_mtime=$(stat -c %Y "$TEMPLATE_FILE" 2>/dev/null || echo 0)
+    light_mtime=0
+    [[ -f "$OMARCHY_THEME_PATH/light.mode" ]] && light_mtime=$(stat -c %Y "$OMARCHY_THEME_PATH/light.mode" 2>/dev/null || echo 0)
+
+    [[ "$cache_mtime" -ge "$source_mtime" ]] || return 1
+    [[ "$cache_mtime" -ge "$template_mtime" ]] || return 1
+    [[ "$cache_mtime" -ge "$light_mtime" ]] || return 1
+
+    return 0
+}
+
 set_theme_from_name() {
     local theme_name="$1"
 
@@ -64,18 +101,27 @@ set_theme_from_name() {
     info "Setting Zed theme for: $theme_name"
 
     local theme_file="$ZED_THEMES_DIR/omazed.json"
+    local cache_path
+    cache_path=$(get_cache_path "$theme_name")
+    mkdir -p "$CACHE_DIR" "$ZED_THEMES_DIR"
+
+    if is_cache_valid "$theme_name"; then
+        cp "$cache_path" "$theme_file"
+        success "Loaded cached theme for: $theme_name"
+        return 0
+    fi
 
     info "Generating Zed theme..."
     if generate_zed_theme; then
         if [[ -f "$theme_file" ]]; then
-            success "Generated Zed theme"
+            cp "$theme_file" "$cache_path"
+            success "Generated and cached theme for: $theme_name"
         fi
     else
         info "Could not generate theme, skipping update"
         return 0
     fi
 
-    success "Theme generated for: $theme_name"
     return 0
 }
 
@@ -327,12 +373,13 @@ sync_theme() {
     fi
 
     info "Attempting to generate Zed theme..."
-    if generate_zed_theme; then
-        if [[ -f "$theme_file" ]]; then
-            success "Generated Zed theme: $theme_file"
-        else
-            warn "Theme generation completed but file not found at expected location: $theme_file"
-        fi
+    if generate_zed_theme && [[ -f "$theme_file" ]]; then
+        success "Generated Zed theme: $theme_file"
+        local cache_path
+        cache_path=$(get_cache_path "$current_theme")
+        mkdir -p "$CACHE_DIR"
+        cp "$theme_file" "$cache_path"
+        success "Cache updated for: $current_theme"
     else
         info "Skipping Zed theme update - generation failed"
         return 0
